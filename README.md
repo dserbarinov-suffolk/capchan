@@ -1,5 +1,20 @@
 # Capchan
 
+```text
+
+        ＿人人人人人人＿
+        ＞  CAPCHAN!  ＜
+        ￣Y^Y^Y^Y^Y￣
+
+              .-^-.
+           __/  cap \__
+          /  (｡•̀ᴗ-)  \      [REC]
+         /|   /|◎|\   |\
+        /_|  /_|__|_\  |_\
+             ノ    ヽ
+
+```
+
 ## License
 
 Capchan is licensed under the PolyForm Noncommercial License 1.0.0.
