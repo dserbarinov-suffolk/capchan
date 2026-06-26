@@ -5,18 +5,25 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "capchan"
 version = "0.1.0"
-description = "Turn a slide-deck-style video into a slide deck plus an inspectable trace."
+description = "A video-processing multitool workspace for extracting text-bearing content from pixels."
 requires-python = ">=3.10"
 dependencies = [
-    "numpy",
-    "Pillow",
-    "pytesseract",
-    "python-pptx",
-    "matplotlib",
+    "deckchan",
+    "subchan",
 ]
 
-[project.scripts]
-capchan = "capchan.cli:main"
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+framechan = { workspace = true }
+deckchan = { workspace = true }
+subchan = { workspace = true }
 
 [tool.setuptools]
-packages = ["capchan"]
+packages = []

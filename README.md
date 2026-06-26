@@ -1,173 +1,118 @@
 # Capchan
 
-```text
+Capchan is a Python video-processing monorepo for extracting text-bearing
+content that is burned into video pixels.
 
-        ＿人人人人人人＿
-        ＞  CAPCHAN!  ＜
-        ￣Y^Y^Y^Y^Y￣
+The workspace currently ships two tools:
 
-              .-^-.
-           __/  cap \__
-          /  (｡•̀ᴗ-)  \      [REC]
-         /|   /|◎|\   |\
-        /_|  /_|__|_\  |_\
-             ノ    ヽ
+- `deckchan` turns slide-style videos into slide decks.
+- `subchan` turns videos with burned-in subtitles into subtitle files.
 
-```
+Both tools share `framechan`, the task-blind kernel that samples video frames,
+builds a difference series, finds static segments, and recognizes text through a
+port.
 
 ## License
 
 Capchan is licensed under the PolyForm Noncommercial License 1.0.0.
 
-You may use Capchan for personal, educational, research, or other non-commercial purposes.
-
-Commercial use is not permitted under this license. Commercial users must obtain a separate commercial license before using Capchan in any business, product, service, workflow, or revenue-generating activity.
+You may use Capchan for personal, educational, research, or other non-commercial
+purposes. Commercial use is not permitted under this license. Commercial users
+must obtain a separate commercial license before using Capchan in any business,
+product, service, workflow, or revenue-generating activity.
 
 See [LICENSE](./LICENSE) for the full license terms.
 
-## What Capchan Does
+## Repository Layout
 
-Turn a video that is *basically a slide deck* — static slides held while someone
-talks over them — into an actual slide deck, automatically. Out comes a PDF (and
-optionally a PPTX) of the slides, plus a JSON trace of every decision the tool
-made so you can see exactly why it produced what it did.
+```text
+packages/
+  framechan/   shared kernel: video -> segments with recognized text
+  deckchan/    slide deck extraction
+  subchan/     hardsub subtitle extraction
+raw/           ignored source videos; .gitkeep is tracked
+out/           ignored generated outputs; .gitkeep is tracked
+tests/         focused unit tests for the package contracts
+```
 
-## How it works
+## Local Tooling
 
-Two signals, read off the video itself. No per-video configuration, and no magic
-constants fitted to one clip — every parameter is in units the video or the genre
-gives you.
-
-**1. Stationarity gate — is this a slide at all?**
-Sample frames and measure how much each differs from the one before. A slide is a
-held still frame: a long run of near-zero differences. A cut or a build is a brief
-spike; a talking head or B-roll is sustained motion. The cutoff between "still"
-and "moving" is found per-video with [Otsu's method](https://en.wikipedia.org/wiki/Otsu%27s_method)
-on the difference histogram. A minimum-duration floor (a real slide is held at
-least a couple of seconds) drops momentary stillness and one-second cutaways.
-
-**2. OCR text-identity — which slide, and is it a build or a new one?**
-OCR each held segment and reduce it to a set of tokens. Compare each segment only
-to its immediate predecessor in the sequence:
-
-| relation | meaning | action |
-|---|---|---|
-| equal token sets | same slide (held shot, or cut away and back) | merge |
-| current ⊆ next | a bullet appeared — progressive build | merge, keep the last/maximal frame |
-| either side low-text | a photo / chart / title card | keep both (don't trust a text compare) |
-| otherwise | a genuinely new slide | new slide |
-
-The error budget is one-directional: a false positive is one extra slide you
-delete (cheap), a false negative is a slide you lost (expensive). So everything
-leans toward over-capture.
-
-## Install
-
-This repo is normally run with `uv`, using the user-local toolchain on this
-machine:
+Use `uv`. Do not assume a system Python workflow on this machine.
+`~/.local/bin` is first on `PATH`, `uv` lives there, and there is intentionally
+no bare `python` command.
 
 ```bash
-uv sync
+uv sync --all-packages --dev
+uv run pytest
 ```
 
-Two system tools are needed alongside the Python deps:
+Native media/OCR tools are installed in the local non-root pattern documented at
+`~/.local/share/local-tools/README.md`.
+
+Expected commands:
 
 ```bash
-# This machine keeps non-root tools in ~/.local/bin.
-# See ~/.local/share/local-tools/README.md before installing anything.
-which ffmpeg   # expected here: ~/.local/bin/ffmpeg
-which ffprobe  # expected here: ~/.local/bin/ffprobe
-
-# The default OCR backend also needs tesseract unless you provide another
-# OCRBackend implementation.
-which tesseract
+which ffmpeg      # ~/.local/bin/ffmpeg
+which ffprobe     # ~/.local/bin/ffprobe
+which tesseract   # ~/.local/bin/tesseract
 ```
 
-### Local tooling notes for agents
+If `uv` fails under an agent sandbox, it may need access to `~/.cache/uv`; rerun
+with the appropriate sandbox escalation rather than falling back to system
+Python or installing globally.
 
-Do not assume a system Python workflow on this machine. `~/.local/bin` is first
-on `PATH`, `uv` lives there, and there is intentionally no bare `python`
-command. The system `/usr/bin/python3` is the Xcode Command Line Tools Python
-and may be too old for this project, so use `uv run ...` for commands that need
-Python. Examples:
+## deckchan
 
 ```bash
-uv run python -m capchan --help
-uv run capchan talk.mp4
-uv run python examples/make_test_video.py
+uv run deckchan raw/d-Ods9daQPw.mp4 -o out/deckchan-d-Ods9daQPw --pptx
 ```
 
-If `uv` fails under an agent sandbox, it may be because it needs access to its
-cache under `~/.cache/uv`; rerun with the appropriate sandbox escalation rather
-than falling back to system Python or installing tools globally.
+Outputs:
 
-## Usage
+```text
+out/deckchan-d-Ods9daQPw/
+  deck.pdf
+  deck.pptx
+  diff_series.png
+  trace.json
+  frames/
+```
+
+Useful tuning flags:
 
 ```bash
-capchan talk.mp4                           # writes out/deck.pdf + diagnostics
-capchan talk.mp4 --pptx                    # also writes out/deck.pptx
-uv run python -m capchan talk.mp4          # equivalent, no install needed
+uv run deckchan video.mp4 --fps 2 --min-seconds 2 --text-overlap 0.85
+uv run deckchan video.mp4 --ocr-lang eng --ocr-psm 6
 ```
 
-Output directory:
+## subchan
 
-```
-out/
-  deck.pdf          one page per slide (full-resolution frames)
-  deck.pptx         optional, with --pptx
-  diff_series.png   the difference signal with the gate threshold + captured segments
-  trace.json        every segment, every merge decision, the full timeline
-  frames/           the captured frames
+```bash
+uv run subchan raw/1eWb6lyi3cU.mp4 -o out/subchan-1eWb6lyi3cU --vtt --ocr-lang jpn
 ```
 
-The console prints a timeline and a one-line preview of each slide, e.g.
+Outputs:
 
+```text
+out/subchan-1eWb6lyi3cU/
+  captions.srt
+  captions.vtt
+  trace.json
 ```
-timeline: S1[0.0-6.0]  ·  GAP[6.0-10.0]  ·  S2[10.0-20.0]  ·  ...
- slide  1  [0.0-6.0s]   'Quarterly Business Review Engineering Org FY26'
- slide  2  [10.0-20.0s] 'Agenda Kickoff and goals Architecture deep dive Launch...'
-```
 
-## Reading the trace (the tuning pass)
+`subchan` supports two recognition modes:
 
-When you run this on a real video and a slide is missing, `trace.json` tells you
-which of two things happened, and each points at a different dial:
+- `banded` recognizes a lower video band after brightness conditioning.
+- `full-frame` recognizes the whole frame and applies caption discrimination.
 
-- **It was gated out.** Look at `segments` around where the slide should be. If
-  there is no captured segment there, the gate rejected it. Either it read as
-  motion (compare its `diff` values in `difference_series` against
-  `static_threshold` — lower the gate with `--static-threshold 0.04`) or it was too
-  brief (its `duration` is under the floor — lower it with `--min-seconds 1.5`).
-  `diff_series.png` shows this at a glance: green spans are captured, grey spans
-  are static-but-too-short.
-- **It was merged into a neighbour.** Find its segment in `merge_decisions`. A
-  `relation` of `equal` or `build` means its text read as identical-to or a
-  subset-of the adjacent slide. If that was wrong, tighten with
-  `--text-overlap 0.95`.
+The default recognizer adapter is Tesseract. For Japanese hardsubs, pass
+`--ocr-lang jpn`; for English, the default `eng` is fine.
 
-So a missing slide is a glance, not a debugging session.
+## Design
 
-## Known limitations (v1)
+The architecture is specified in
+[docs/2026-06-26-capchan-as-multitool.md](./docs/2026-06-26-capchan-as-multitool.md).
 
-- **Returns to an earlier slide become duplicates.** If you show slide 4, then
-  slides 5–6, then slide 4 again, the second showing is captured as a separate
-  slide. De-duplicating across time (against *all* prior slides) is intentionally
-  out of scope — text alone over-merges distinct slides that share a title, and
-  the duplicate is cheap to delete. Immediate cut-away-and-return *is* collapsed.
-- **Composited / picture-in-picture slides are not detected.** A slide shown
-  beside a moving presenter never goes still, so the whole-frame gate excludes it.
-  Handling that needs regional stationarity and is out of scope for v1.
-
-## Swapping the OCR engine
-
-The OCR backend is a one-method protocol (`ocr.OCRBackend`). The default is
-Tesseract for portability. On macOS, Apple's Vision OCR is faster and on-device;
-drop it in by implementing the same interface (e.g. via the
-[`ocrmac`](https://pypi.org/project/ocrmac/) package) and passing it to
-`run(..., ocr_backend=YourBackend())`:
-
-```python
-class VisionBackend:
-    def text(self, image) -> str:
-        ...  # call Vision, return the recognized text
-```
+The key invariant is the dependency rule: source dependencies point inward.
+Domain modules are pure, ports are owned by the core, and adapters hold the
+technology-specific code.

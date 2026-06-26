@@ -1,0 +1,1 @@
+"""Framechan application use cases."""

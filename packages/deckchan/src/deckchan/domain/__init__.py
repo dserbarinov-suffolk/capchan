@@ -1,0 +1,1 @@
+"""Pure deckchan domain services."""

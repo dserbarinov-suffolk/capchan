@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "subchan"
+version = "0.1.0"
+description = "Extract hardsub subtitle events from video pixels."
+requires-python = ">=3.10"
+dependencies = [
+    "framechan",
+    "Pillow",
+]
+
+[project.scripts]
+subchan = "subchan.cli:main"
+
+[tool.uv.sources]
+framechan = { workspace = true }
+
+[tool.setuptools.packages.find]
+where = ["src"]

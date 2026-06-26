@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deckchan"
+version = "0.1.0"
+description = "Extract slide decks from slide-style videos."
+requires-python = ">=3.10"
+dependencies = [
+    "framechan",
+    "matplotlib",
+    "Pillow",
+    "python-pptx",
+]
+
+[project.scripts]
+deckchan = "deckchan.cli:main"
+
+[tool.uv.sources]
+framechan = { workspace = true }
+
+[tool.setuptools.packages.find]
+where = ["src"]

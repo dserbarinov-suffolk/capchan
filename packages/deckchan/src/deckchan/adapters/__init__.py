@@ -1,0 +1,1 @@
+"""Deckchan driven adapters."""
