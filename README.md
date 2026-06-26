@@ -78,7 +78,7 @@ Python. Examples:
 
 ```bash
 uv run python -m capchan --help
-uv run capchan talk.mp4 -o out
+uv run capchan talk.mp4
 uv run python examples/make_test_video.py
 ```
 
@@ -89,9 +89,9 @@ than falling back to system Python or installing tools globally.
 ## Usage
 
 ```bash
-capchan talk.mp4 -o out                    # writes out/deck.pdf + diagnostics
-capchan talk.mp4 -o out --pptx             # also writes out/deck.pptx
-uv run python -m capchan talk.mp4 -o out    # equivalent, no install needed
+capchan talk.mp4                           # writes out/deck.pdf + diagnostics
+capchan talk.mp4 --pptx                    # also writes out/deck.pptx
+uv run python -m capchan talk.mp4          # equivalent, no install needed
 ```
 
 Output directory:

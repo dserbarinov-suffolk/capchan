@@ -21,8 +21,8 @@ def main(argv: Optional[list] = None) -> int:
         description="Turn a slide-deck-style video into a deck plus an inspectable trace.",
     )
     p.add_argument("video", type=Path, help="input video (anything ffmpeg can read)")
-    p.add_argument("-o", "--out", type=Path, default=Path("capchan_out"),
-                   help="output directory (default: capchan_out)")
+    p.add_argument("-o", "--out", type=Path, default=Path("out"),
+                   help="output directory (default: out)")
     p.add_argument("--pptx", action="store_true",
                    help="also emit deck.pptx (deck.pdf is always emitted)")
     p.add_argument("--fps", type=float, default=Config.sample_fps,
