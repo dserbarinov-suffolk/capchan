@@ -7,6 +7,8 @@ from framechan.config import FrameConfig
 from subchan.application.extract_subtitles import extract_subtitles
 from subchan.config import SubConfig
 
+BOTTOM_THIRD_TOP = 2.0 / 3.0
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
@@ -17,8 +19,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-o", "--out", type=Path, default=Path("out"), help="output directory")
     parser.add_argument("--vtt", action="store_true", help="also emit captions.vtt")
     parser.add_argument("--mode", choices=("banded", "full-frame"), default="banded")
+    parser.add_argument(
+        "--bottom-third",
+        action="store_true",
+        help="only OCR the lower third of each selected frame",
+    )
+    parser.add_argument(
+        "--ocr-engine",
+        choices=("auto", "tesseract", "vision"),
+        default=SubConfig.ocr_engine,
+        help="text recognition backend; auto uses Vision on macOS when installed, otherwise Tesseract",
+    )
     parser.add_argument("--band-top", type=float, default=SubConfig.band_top)
     parser.add_argument("--band-bottom", type=float, default=SubConfig.band_bottom)
+    parser.add_argument(
+        "--conditioning",
+        choices=("brightness", "subtitle-outline", "none"),
+        default=SubConfig.conditioning,
+    )
     parser.add_argument("--brightness-threshold", type=int, default=SubConfig.brightness_threshold)
     parser.add_argument("--fps", type=float, default=FrameConfig.sample_fps)
     parser.add_argument("--static-threshold", default="auto")
@@ -31,6 +49,14 @@ def main(argv: list[str] | None = None) -> int:
     if threshold != "auto":
         threshold = float(threshold)
 
+    mode = args.mode
+    band_top = args.band_top
+    band_bottom = args.band_bottom
+    if args.bottom_third:
+        mode = "banded"
+        band_top = BOTTOM_THIRD_TOP
+        band_bottom = 1.0
+
     frame = FrameConfig(
         sample_fps=args.fps,
         static_threshold=threshold,
@@ -40,9 +66,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     config = SubConfig(
         frame=frame,
-        mode=args.mode,
-        band_top=args.band_top,
-        band_bottom=args.band_bottom,
+        mode=mode,
+        ocr_engine=args.ocr_engine,
+        band_top=band_top,
+        band_bottom=band_bottom,
+        conditioning=args.conditioning,
         brightness_threshold=args.brightness_threshold,
         make_vtt=args.vtt,
     )

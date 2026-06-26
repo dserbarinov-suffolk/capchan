@@ -13,5 +13,10 @@ dependencies = [
     "pytesseract",
 ]
 
+[project.optional-dependencies]
+vision = [
+    "ocrmac; sys_platform == 'darwin'",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]

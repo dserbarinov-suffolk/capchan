@@ -46,6 +46,12 @@ uv sync --all-packages --dev
 uv run pytest
 ```
 
+Optional OCR engines are installed through extras, not global Python packages:
+
+```bash
+uv sync --all-packages --dev --extra vision   # macOS Apple Vision via ocrmac
+```
+
 Native media/OCR tools are installed in the local non-root pattern documented at
 `~/.local/share/local-tools/README.md`.
 
@@ -105,8 +111,38 @@ out/subchan-1eWb6lyi3cU/
 - `banded` recognizes a lower video band after brightness conditioning.
 - `full-frame` recognizes the whole frame and applies caption discrimination.
 
-The default recognizer adapter is Tesseract. For Japanese hardsubs, pass
-`--ocr-lang jpn`; for English, the default `eng` is fine.
+For road-trip or street footage where signs and storefronts create false OCR
+hits, use `--bottom-third` to crop OCR to the lower third of the frame before
+recognition:
+
+```bash
+uv run --extra vision subchan raw/road-trip.mp4 -o out/road-trip --vtt \
+  --ocr-lang jpn --bottom-third
+```
+
+The default recognizer setting is `--ocr-engine auto`. On macOS with the
+`vision` extra installed it uses Apple Vision; otherwise it falls back to
+Tesseract. For Japanese hardsubs, pass `--ocr-lang jpn`; for English, the
+default `eng` is fine.
+
+Recognizer engine options:
+
+- `--ocr-engine auto` is the normal path. It uses Vision on this machine when
+  the `vision` extra is present and otherwise uses Tesseract.
+- `--ocr-engine vision` forces Apple Vision through the optional `vision` extra
+  on macOS. It produced the cleanest full-video result for
+  `raw/1eWb6lyi3cU.mp4` in local testing.
+- `--ocr-engine tesseract` forces the portable fallback. For the Japanese test video,
+  `--conditioning subtitle-outline --band-top 0.74 --ocr-psm 6` works better
+  than the plain brightness profile, but spacing/noise is still visible.
+
+Known-good local commands:
+
+```bash
+uv run --extra vision subchan raw/1eWb6lyi3cU.mp4 \
+  -o out/subchan-1eWb6lyi3cU-vision --vtt \
+  --ocr-lang jpn --band-top 0.74
+```
 
 ## Design
 

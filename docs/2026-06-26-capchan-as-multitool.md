@@ -290,11 +290,12 @@ These rules hold across the whole monorepo. A change that breaks one of these ru
 
 ## 11. The `TextRecognizer` port and the Apple Vision adapter
 
-OCR is the flagship of the hexagonal design. The core depends only on the `TextRecognizer` port. The production adapter is Apple Vision.
+OCR is the flagship of the hexagonal design. The core depends only on the `TextRecognizer` port. The preferred local adapter is Apple Vision.
 
-- **`VisionRecognizer` (production).** Apple Vision via `ocrmac` / `pyobjc`. It is on-device, runs on the Neural Engine, and returns each line with text, confidence, and a bounding box. It is private and fast on Apple Silicon.
+- **`VisionRecognizer` (preferred).** Apple Vision via `ocrmac` / `pyobjc`. It is on-device, runs on the Neural Engine, and returns each line with text, confidence, and a bounding box. It is private and fast on Apple Silicon.
+- **`TesseractRecognizer` (fallback).** The portable local OCR adapter. It keeps Capchan usable without macOS Vision and gives CI a small non-ML baseline.
 - **`FakeRecognizer` (tests).** A deterministic double. The domain and the use cases are testable in CI with no Mac and no Vision — a direct payoff of the port boundary.
-- **Future adapters.** Tesseract, EasyOCR, or the PaddleOCR-VL MLX build can each become an adapter behind the same port if another platform or a stronger model is needed. (Classic PaddleOCR is unreliable on Apple Silicon and is not a candidate for the default.)
+- **Future adapters.** A new OCR engine can become an adapter behind the same port only when a concrete platform, language, or quality gap justifies the extra dependency surface.
 
 **The `boxes()` contract is line-level.** Each adapter normalizes its output to one box per line. Apple Vision returns line observations natively. A future word-level engine groups its word boxes into lines. This keeps `CaptionDiscrimination` reasoning over lines, independent of the engine.
 
@@ -380,5 +381,5 @@ Capchan/
 
 - Cross-time grouping, to fold a repeated slide or caption into one item.
 - Regional stationarity, for picture-in-picture and presenter-beside-slide layouts.
-- Additional `TextRecognizer` adapters (Tesseract, EasyOCR, PaddleOCR-VL MLX) for other platforms or stronger models.
+- Additional `TextRecognizer` adapters only for concrete platform, language, or quality gaps.
 - `subchan` styled output (ASS), learned floating-position models, and color models.

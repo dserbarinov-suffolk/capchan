@@ -9,6 +9,7 @@ description = "Extract hardsub subtitle events from video pixels."
 requires-python = ">=3.10"
 dependencies = [
     "framechan",
+    "numpy",
     "Pillow",
 ]
 

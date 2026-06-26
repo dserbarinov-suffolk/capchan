@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import importlib.util
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageFilter, ImageOps
 
 from framechan.adapters.ffmpeg_frame_source import FfmpegFrameSource
 from framechan.adapters.tesseract_recognizer import TesseractRecognizer
+from framechan.adapters.vision_recognizer import VisionRecognizer
 from framechan.application.extract_segments import ExtractedSegments, extract_segments
 from framechan.ports.frame_source import FrameSource
 from framechan.ports.text_recognizer import TextRecognizer
@@ -57,12 +61,31 @@ def _condition_image(image: Image.Image, config: SubConfig) -> Image.Image:
         top = int(height * config.band_top)
         bottom = int(height * config.band_bottom)
         working = working.crop((0, top, width, bottom))
+    if config.conditioning == "none":
+        return working
+    if config.conditioning == "subtitle-outline":
+        return _outline_caption_mask(working)
     gray = ImageOps.grayscale(working)
     if config.brightness_threshold > 0:
         gray = gray.filter(ImageFilter.MedianFilter(3))
         gray = gray.point(lambda value: 255 if value >= config.brightness_threshold else 0)
         gray = gray.filter(ImageFilter.MaxFilter(3))
     return gray
+
+
+def _outline_caption_mask(image: Image.Image) -> Image.Image:
+    arr = np.asarray(image.convert("RGB"))
+    red = arr[:, :, 0]
+    green = arr[:, :, 1]
+    blue = arr[:, :, 2]
+    max_channel = arr.max(axis=2)
+    min_channel = arr.min(axis=2)
+    white_outline = max_channel > 215
+    warm_fill = ((max_channel - min_channel) > 55) & (red > 145) & (green > 70) & (blue < 160)
+    mask = white_outline | warm_fill
+    output = np.full(mask.shape, 255, dtype=np.uint8)
+    output[mask] = 0
+    return Image.fromarray(output).filter(ImageFilter.MinFilter(3))
 
 
 def _caption_candidates(
@@ -115,8 +138,10 @@ def _trace_payload(
         "config": {
             "frame": config.frame.to_dict(),
             "mode": config.mode,
+            "ocr_engine": config.ocr_engine,
             "band_top": config.band_top,
             "band_bottom": config.band_bottom,
+            "conditioning": config.conditioning,
             "brightness_threshold": config.brightness_threshold,
             "make_vtt": config.make_vtt,
         },
@@ -203,7 +228,7 @@ def extract_subtitles(
     video_path = Path(video)
     out = Path(out_dir)
     source = frame_source or FfmpegFrameSource(video_path)
-    text_recognizer = recognizer or TesseractRecognizer(config.frame.ocr_lang, config.frame.ocr_psm)
+    text_recognizer = recognizer or _build_recognizer(config)
 
     extracted = extract_segments(
         video_path,
@@ -237,3 +262,15 @@ def extract_subtitles(
         vtt_path=vtt_path,
         trace_path=trace_path,
     )
+
+
+def _build_recognizer(config: SubConfig) -> TextRecognizer:
+    if config.ocr_engine == "vision" or (
+        config.ocr_engine == "auto" and _vision_is_available()
+    ):
+        return VisionRecognizer(config.frame.ocr_lang)
+    return TesseractRecognizer(config.frame.ocr_lang, config.frame.ocr_psm)
+
+
+def _vision_is_available() -> bool:
+    return sys.platform == "darwin" and importlib.util.find_spec("ocrmac") is not None

@@ -12,6 +12,11 @@ dependencies = [
     "subchan",
 ]
 
+[project.optional-dependencies]
+vision = [
+    "framechan[vision]",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
