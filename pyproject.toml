@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capchan"
+version = "0.1.0"
+description = "Turn a slide-deck-style video into a slide deck plus an inspectable trace."
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "Pillow",
+    "pytesseract",
+    "python-pptx",
+    "matplotlib",
+]
+
+[project.scripts]
+capchan = "capchan.cli:main"
+
+[tool.setuptools]
+packages = ["capchan"]
