@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 import numpy as np
 from PIL import Image, ImageFilter, ImageOps
@@ -12,14 +14,19 @@ from framechan.adapters.ffmpeg_frame_source import FfmpegFrameSource
 from framechan.adapters.tesseract_recognizer import TesseractRecognizer
 from framechan.adapters.vision_recognizer import VisionRecognizer
 from framechan.application.extract_segments import ExtractedSegments, extract_segments
+from framechan.domain.text import RecognizedText
 from framechan.ports.frame_source import FrameSource
 from framechan.ports.text_recognizer import TextRecognizer
 from framechan.trace import write_trace
 from subchan.adapters.srt_writer import SrtSubtitleWriter
 from subchan.adapters.vtt_writer import VttSubtitleWriter
-from subchan.config import SubConfig
+from subchan.config import SubConfig, TextScript
 from subchan.domain.caption import CaptionCandidate, CaptionEvent
-from subchan.domain.discriminate import CaptionDiscriminationResult, discriminate_caption
+from subchan.domain.discriminate import (
+    CaptionBoxDecision,
+    CaptionDiscriminationResult,
+    discriminate_caption,
+)
 from subchan.domain.events import EventMergeDecision, merge_events
 
 
@@ -27,7 +34,8 @@ from subchan.domain.events import EventMergeDecision, merge_events
 class SubtitleResult:
     video: Path
     out_dir: Path
-    threshold: float
+    capture_mode: str
+    threshold: float | None
     n_segments_total: int
     n_segments_captured: int
     events: list[CaptionEvent]
@@ -37,11 +45,19 @@ class SubtitleResult:
 
     def print_summary(self) -> None:
         print(f"\nsubchan - {self.video.name}")
-        print(f"  static threshold ......... {self.threshold:.4f}")
-        print(
-            f"  static segments .......... {self.n_segments_captured} captured "
-            f"/ {self.n_segments_total} total"
-        )
+        if self.capture_mode == "scan":
+            print(f"  capture mode ............. scan")
+            print(
+                f"  ocr samples .............. {self.n_segments_captured} with captions "
+                f"/ {self.n_segments_total} total"
+            )
+        else:
+            threshold = self.threshold if self.threshold is not None else 0.0
+            print(f"  static threshold ......... {threshold:.4f}")
+            print(
+                f"  static segments .......... {self.n_segments_captured} captured "
+                f"/ {self.n_segments_total} total"
+            )
         print(f"  caption events ........... {len(self.events)}")
         for event in self.events[:20]:
             preview = " ".join(event.text.split())[:70]
@@ -52,6 +68,15 @@ class SubtitleResult:
         if self.vtt_path:
             print(f"  vtt:   {self.vtt_path}")
         print(f"  trace: {self.trace_path}\n")
+
+
+@dataclass(frozen=True)
+class ScanSample:
+    index: int
+    start_t: float
+    end_t: float
+    recognized: RecognizedText
+    discrimination: CaptionDiscriminationResult
 
 
 def _condition_image(image: Image.Image, config: SubConfig) -> Image.Image:
@@ -94,6 +119,7 @@ def _caption_candidates(
 ) -> tuple[list[CaptionCandidate], list[CaptionDiscriminationResult]]:
     candidates: list[CaptionCandidate] = []
     discriminations: list[CaptionDiscriminationResult] = []
+    text_script = _resolve_text_script(config)
     for segment_text in extracted.texts:
         segment = segment_text.segment
         result = discriminate_caption(
@@ -103,6 +129,7 @@ def _caption_candidates(
             min_confidence=config.min_confidence,
             min_box_height=config.min_box_height,
             max_box_height=config.max_box_height,
+            text_script=text_script,
         )
         discriminations.append(result)
         if result.text.strip():
@@ -137,8 +164,10 @@ def _trace_payload(
         "video": str(video),
         "config": {
             "frame": config.frame.to_dict(),
+            "capture_mode": config.capture_mode,
             "mode": config.mode,
             "ocr_engine": config.ocr_engine,
+            "text_script": config.text_script,
             "band_top": config.band_top,
             "band_bottom": config.band_bottom,
             "conditioning": config.conditioning,
@@ -229,6 +258,8 @@ def extract_subtitles(
     out = Path(out_dir)
     source = frame_source or FfmpegFrameSource(video_path)
     text_recognizer = recognizer or _build_recognizer(config)
+    if config.capture_mode == "scan":
+        return _extract_subtitles_by_scan(video_path, out, config, source, text_recognizer)
 
     extracted = extract_segments(
         video_path,
@@ -254,6 +285,7 @@ def extract_subtitles(
     return SubtitleResult(
         video=video_path,
         out_dir=out,
+        capture_mode="static",
         threshold=extracted.threshold,
         n_segments_total=len(extracted.segments),
         n_segments_captured=len(extracted.captured_segments),
@@ -262,6 +294,199 @@ def extract_subtitles(
         vtt_path=vtt_path,
         trace_path=trace_path,
     )
+
+
+def _extract_subtitles_by_scan(
+    video_path: Path,
+    out: Path,
+    config: SubConfig,
+    source: FrameSource,
+    recognizer: TextRecognizer,
+) -> SubtitleResult:
+    text_script = _resolve_text_script(config)
+    step = 1.0 / config.frame.sample_fps
+    start_t = config.scan_start
+    end_t = _scan_end_t(video_path, config)
+    samples: list[ScanSample] = []
+    candidates: list[CaptionCandidate] = []
+
+    for index, (t, frame) in enumerate(_scan_frames(source, start_t, end_t, config.frame.sample_fps)):
+        image = _condition_image(frame, config)
+        recognized = recognizer.recognize(image)
+        discrimination = discriminate_caption(
+            recognized,
+            mode=config.mode,
+            segment_duration=step,
+            min_confidence=config.min_confidence,
+            min_box_height=config.min_box_height,
+            max_box_height=config.max_box_height,
+            text_script=text_script,
+        )
+        sample_end = min(t + step, end_t)
+        sample = ScanSample(index, t, sample_end, recognized, discrimination)
+        samples.append(sample)
+        if discrimination.text.strip():
+            candidates.append(CaptionCandidate(index, t, sample_end, discrimination.text))
+
+    events, decisions = merge_events(candidates, config.same_text_overlap, config.max_merge_gap)
+    srt_path = out / "captions.srt"
+    SrtSubtitleWriter().write(events, srt_path)
+    vtt_path = out / "captions.vtt" if config.make_vtt else None
+    if vtt_path:
+        VttSubtitleWriter().write(events, vtt_path)
+
+    trace_path = out / "trace.json"
+    write_trace(
+        _scan_trace_payload(video_path, config, start_t, end_t, samples, candidates, decisions, events),
+        trace_path,
+    )
+    return SubtitleResult(
+        video=video_path,
+        out_dir=out,
+        capture_mode="scan",
+        threshold=None,
+        n_segments_total=len(samples),
+        n_segments_captured=len(candidates),
+        events=events,
+        srt_path=srt_path,
+        vtt_path=vtt_path,
+        trace_path=trace_path,
+    )
+
+
+def _scan_trace_payload(
+    video: Path,
+    config: SubConfig,
+    start_t: float,
+    end_t: float,
+    samples: list[ScanSample],
+    candidates: list[CaptionCandidate],
+    decisions: list[EventMergeDecision],
+    events: list[CaptionEvent],
+) -> dict:
+    return {
+        "tool": "subchan",
+        "video": str(video),
+        "config": {
+            "frame": config.frame.to_dict(),
+            "capture_mode": config.capture_mode,
+            "mode": config.mode,
+            "ocr_engine": config.ocr_engine,
+            "text_script": config.text_script,
+            "band_top": config.band_top,
+            "band_bottom": config.band_bottom,
+            "conditioning": config.conditioning,
+            "brightness_threshold": config.brightness_threshold,
+            "make_vtt": config.make_vtt,
+        },
+        "scan": {
+            "start_t": round(start_t, 3),
+            "end_t": round(end_t, 3),
+            "fps": config.frame.sample_fps,
+            "n_samples": len(samples),
+        },
+        "samples": [
+            {
+                "index": sample.index,
+                "start_t": round(sample.start_t, 3),
+                "end_t": round(sample.end_t, 3),
+                "recognized_text": sample.recognized.text,
+                "caption_text": sample.discrimination.text,
+                "caption_box_decisions": [
+                    _caption_box_decision_to_dict(decision)
+                    for decision in sample.discrimination.decisions
+                ],
+            }
+            for sample in samples
+        ],
+        "caption_candidates": [
+            {
+                "segment": candidate.segment,
+                "start_t": round(candidate.start_t, 3),
+                "end_t": round(candidate.end_t, 3),
+                "text": candidate.text,
+            }
+            for candidate in candidates
+        ],
+        "merge_decisions": [
+            {
+                "segment": decision.segment,
+                "relation": decision.relation,
+                "current_subset_of_new": decision.current_subset_of_new,
+                "new_subset_of_current": decision.new_subset_of_current,
+            }
+            for decision in decisions
+        ],
+        "events": [
+            {
+                "index": event.index,
+                "start_t": round(event.start_t, 3),
+                "end_t": round(event.end_t, 3),
+                "text": event.text,
+            }
+            for event in events
+        ],
+    }
+
+
+def _caption_box_decision_to_dict(decision: CaptionBoxDecision) -> dict:
+    return {
+        "text": decision.text,
+        "confidence": decision.confidence,
+        "bbox": list(decision.bbox),
+        "score": decision.score,
+        "kept": decision.kept,
+        "reasons": list(decision.reasons),
+    }
+
+
+def _scan_times(start_t: float, end_t: float, step: float) -> list[float]:
+    times: list[float] = []
+    index = 0
+    while True:
+        t = start_t + index * step
+        if t >= end_t:
+            return times
+        times.append(t)
+        index += 1
+
+
+def _scan_frames(
+    source: FrameSource,
+    start_t: float,
+    end_t: float,
+    fps: float,
+) -> Iterator[tuple[float, Image.Image]]:
+    if hasattr(source, "frames"):
+        yield from source.frames(fps, start_t, end_t - start_t)
+        return
+    for t in _scan_times(start_t, end_t, 1.0 / fps):
+        yield t, source.frame_at(t)
+
+
+def _scan_end_t(video: Path, config: SubConfig) -> float:
+    if config.scan_duration is not None:
+        return config.scan_start + config.scan_duration
+    return _video_duration(video)
+
+
+def _video_duration(video: Path) -> float:
+    raw = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(video),
+        ],
+        capture_output=True,
+        check=True,
+        text=True,
+    ).stdout
+    return float(raw.strip())
 
 
 def _build_recognizer(config: SubConfig) -> TextRecognizer:
@@ -274,3 +499,16 @@ def _build_recognizer(config: SubConfig) -> TextRecognizer:
 
 def _vision_is_available() -> bool:
     return sys.platform == "darwin" and importlib.util.find_spec("ocrmac") is not None
+
+
+def _resolve_text_script(config: SubConfig) -> TextScript:
+    if config.text_script != "auto":
+        return config.text_script
+    lang_parts = {
+        part.strip().casefold()
+        for separator in ("+", ",")
+        for part in config.frame.ocr_lang.replace(separator, "+").split("+")
+    }
+    if lang_parts & {"ja", "jpn", "japanese"}:
+        return "japanese"
+    return "none"

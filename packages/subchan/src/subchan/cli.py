@@ -18,6 +18,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("video", type=Path, help="input video")
     parser.add_argument("-o", "--out", type=Path, default=Path("out"), help="output directory")
     parser.add_argument("--vtt", action="store_true", help="also emit captions.vtt")
+    parser.add_argument(
+        "--scan",
+        action="store_true",
+        help="OCR the caption region at fixed FPS instead of using static-scene detection",
+    )
+    parser.add_argument("--start", type=float, default=SubConfig.scan_start, help="scan start time in seconds")
+    parser.add_argument("--duration", type=float, default=None, help="scan duration in seconds")
     parser.add_argument("--mode", choices=("banded", "full-frame"), default="banded")
     parser.add_argument(
         "--bottom-third",
@@ -30,6 +37,12 @@ def main(argv: list[str] | None = None) -> int:
         default=SubConfig.ocr_engine,
         help="text recognition backend; auto uses Vision on macOS when installed, otherwise Tesseract",
     )
+    parser.add_argument(
+        "--text-script",
+        choices=("auto", "none", "japanese"),
+        default=SubConfig.text_script,
+        help="caption text script filter; auto requires Japanese text for jpn OCR",
+    )
     parser.add_argument("--band-top", type=float, default=SubConfig.band_top)
     parser.add_argument("--band-bottom", type=float, default=SubConfig.band_bottom)
     parser.add_argument(
@@ -38,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         default=SubConfig.conditioning,
     )
     parser.add_argument("--brightness-threshold", type=int, default=SubConfig.brightness_threshold)
+    parser.add_argument("--min-confidence", type=float, default=SubConfig.min_confidence)
     parser.add_argument("--fps", type=float, default=FrameConfig.sample_fps)
     parser.add_argument("--static-threshold", default="auto")
     parser.add_argument("--min-seconds", type=float, default=FrameConfig.min_segment_seconds)
@@ -66,12 +80,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     config = SubConfig(
         frame=frame,
+        capture_mode="scan" if args.scan else "static",
         mode=mode,
         ocr_engine=args.ocr_engine,
+        text_script=args.text_script,
+        scan_start=args.start,
+        scan_duration=args.duration,
         band_top=band_top,
         band_bottom=band_bottom,
         conditioning=args.conditioning,
         brightness_threshold=args.brightness_threshold,
+        min_confidence=args.min_confidence,
         make_vtt=args.vtt,
     )
     result = extract_subtitles(args.video, args.out, config)

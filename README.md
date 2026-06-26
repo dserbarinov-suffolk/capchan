@@ -106,7 +106,7 @@ out/subchan-1eWb6lyi3cU/
   trace.json
 ```
 
-`subchan` supports two recognition modes:
+`subchan` supports two caption-region modes:
 
 - `banded` recognizes a lower video band after brightness conditioning.
 - `full-frame` recognizes the whole frame and applies caption discrimination.
@@ -119,6 +119,24 @@ recognition:
 uv run --extra vision subchan raw/road-trip.mp4 -o out/road-trip --vtt \
   --ocr-lang jpn --bottom-third
 ```
+
+By default `subchan` finds static scenes first, then OCRs representative frames.
+For fast subtitle changes, use `--scan` to OCR fixed-rate samples and merge
+adjacent matching text. Use `--start` and `--duration` to test a window before
+running a long video, and raise `--fps` for short captions. `--min-confidence`
+can drop weak sign/background detections while keeping stronger subtitle text.
+
+```bash
+uv run --extra vision subchan raw/1eWb6lyi3cU.mp4 \
+  -o out/subchan-1eWb6lyi3cU-scan-10-20 --vtt \
+  --ocr-lang jpn --scan --start 10 --duration 11 --fps 2 \
+  --mode banded --band-top 0.3 --band-bottom 1 \
+  --conditioning none --min-confidence 0.4
+```
+
+When `--ocr-lang jpn` is used, `--text-script auto` also requires Japanese text
+and trims obvious Latin sign text around Japanese phrases. Use
+`--text-script none` to keep every OCR line.
 
 The default recognizer setting is `--ocr-engine auto`. On macOS with the
 `vision` extra installed it uses Apple Vision; otherwise it falls back to
@@ -142,6 +160,12 @@ Known-good local commands:
 uv run --extra vision subchan raw/1eWb6lyi3cU.mp4 \
   -o out/subchan-1eWb6lyi3cU-vision --vtt \
   --ocr-lang jpn --band-top 0.74
+
+uv run --extra vision subchan raw/1eWb6lyi3cU.mp4 \
+  -o out/subchan-1eWb6lyi3cU-scan-10-20 --vtt \
+  --ocr-lang jpn --scan --start 10 --duration 11 --fps 2 \
+  --mode banded --band-top 0.3 --band-bottom 1 \
+  --conditioning none --min-confidence 0.4
 ```
 
 ## Design
