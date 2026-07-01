@@ -1,5 +1,20 @@
 # Capchan
 
+```text
+
+        ＿人人人人人人＿
+        ＞  CAPCHAN!  ＜
+        ￣Y^Y^Y^Y^Y￣
+
+              .-^-.
+           __/  cap \__
+          /  (｡•̀ᴗ-)  \      [REC]
+         /|   /|◎|\   |\
+        /_|  /_|__|_\  |_\
+             ノ    ヽ
+
+```
+
 Capchan is a Python video-processing monorepo for extracting text-bearing
 content that is burned into video pixels.
 
